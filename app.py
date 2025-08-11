@@ -41,6 +41,16 @@ st.header("Total distance, all time")
 st.subheader(f"{total_dist:,.2f} miles")
 st.markdown("---")
 
+run_cnt = df.height
+st.header("Number of runs, all time")
+st.subheader(f"{run_cnt:,d}")
+st.markdown("---")
+
+avg_dist = total_dist / run_cnt
+st.header("Avg. distance per run, all time")
+st.subheader(f"{avg_dist:,.2f} miles")
+st.markdown("---")
+
 total_time = df.select(pl.col("time")).sum().item()
 total_seconds = int(total_time * 60)
 days = total_seconds // 86400
