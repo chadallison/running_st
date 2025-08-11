@@ -1,4 +1,2 @@
 streamlit
 polars
-math
-datetime
