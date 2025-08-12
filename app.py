@@ -1,7 +1,9 @@
-import streamlit as st
-import polars as pl
-from datetime import datetime, timedelta
 import math
+from datetime import datetime, timedelta
+import altair as alt
+import polars as pl
+import streamlit as st
+
 
 st.set_page_config(page_title = "Chad's Running Report", layout = "wide")
 
@@ -103,6 +105,26 @@ recent_shoes_agg = (
     .sort(pl.col("total_distance"), descending = True)
 )
 
+shoe_df = recent_shoes_agg.to_pandas()
+
+chart = (
+    alt.Chart(shoe_df)
+    .mark_bar()
+    .encode(
+        x = alt.X("total_distance", title = "Total Distance (mi)"),
+        y = alt.Y("shoe", sort = "-x", title = "Shoe"),
+        color = alt.value("#4a6154"),
+        tooltip = [
+            alt.Tooltip("run_count", title = "Runs"),
+            alt.Tooltip("total_distance", title = "Total Distance (mi)", format = ".2f"),
+            alt.Tooltip("avg_distance", title = "Avg Distance (mi)", format = ".2f"),
+            alt.Tooltip("max_distance", title = "Max Distance (mi)", format = ".2f"),
+            alt.Tooltip("time_hours", title = "Total Time (hrs)", format = ".2f")
+        ]
+    )
+    .properties(height = 300)
+)
+
 st.subheader("Shoe-Level Summary (Past 2 Months)")
-st.dataframe(recent_shoes_agg, use_container_width = True)
+st.altair_chart(chart, use_container_width = True)
 st.markdown("---")
