@@ -168,10 +168,10 @@ weekly_distance = (
 # convert weekly aggregated data to pandas for Altair
 weekly_distance_df = weekly_distance.to_pandas()
 
-# create line chart for weekly distance
-line_chart = (
+# create bar chart for weekly distance instead of line chart
+bar_chart = (
     alt.Chart(weekly_distance_df)
-    .mark_line(color = "#4a6154", strokeWidth = 3)
+    .mark_bar(color = "#4a6154", size = 25)
     .encode(
         x = alt.X(
             "week_start:T",
@@ -190,9 +190,9 @@ line_chart = (
     )
 )
 
-# display weekly distance line chart
+# display weekly distance bar chart
 st.subheader(f"Weekly Distance for {datetime.now().year}")
-st.altair_chart(line_chart, use_container_width = True)
+st.altair_chart(bar_chart, use_container_width = True)
 st.markdown("---")
 
 # create new column with year-month string for monthly aggregation
