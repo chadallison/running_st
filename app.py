@@ -1,6 +1,7 @@
 import math
 from datetime import datetime, timedelta
 import altair as alt
+import pandas as pd
 import polars as pl
 import streamlit as st
 
@@ -127,4 +128,108 @@ chart = (
 
 st.subheader("Shoe-Level Summary (Past 2 Months)")
 st.altair_chart(chart, use_container_width = True)
+st.markdown("---")
+
+#################
+### new stuff ###
+#################
+
+df_year = df.filter(pl.col("date").dt.year() == datetime.now().year)
+
+df_year = df_year.with_columns(
+    (pl.col("date").cast(pl.Datetime) - pl.duration(days = pl.col("date").dt.weekday())).alias("week_start")
+)
+
+weekly_distance = (
+    df_year
+    .group_by("week_start")
+    .agg(pl.col("distance").sum().alias("total_distance"))
+    .sort("week_start")
+)
+
+weekly_distance_df = weekly_distance.to_pandas()
+
+line_chart = (
+    alt.Chart(weekly_distance_df)
+    .mark_line(color = "#4a6154", strokeWidth = 3)
+    .encode(
+        x = alt.X(
+            "week_start:T",
+            title = "Week Starting",
+            axis = alt.Axis(format = "%b %d", labelAngle = -45, tickCount = 20)
+        ),
+        y = alt.Y("total_distance", title = "Total Distance (mi)"),
+        tooltip = [
+            alt.Tooltip("week_start:T", title = "Week Starting", format = "%Y-%m-%d"),
+            alt.Tooltip("total_distance", title = "Distance (mi)", format = ".2f")
+        ]
+    )
+    .properties(
+        width = 700,
+        height = 350
+    )
+)
+
+st.subheader(f"Weekly Distance for {datetime.now().year}")
+st.altair_chart(line_chart, use_container_width = True)
+st.markdown("---")
+
+###
+###
+###
+
+df_monthly = df.with_columns(
+    pl.col("date").dt.strftime("%Y-%m").alias("year_month")
+)
+
+monthly_distance = (
+    df_monthly
+    .group_by("year_month")
+    .agg(pl.col("distance").sum().alias("total_distance"))
+    .sort("year_month")
+)
+
+monthly_distance_df = monthly_distance.to_pandas()
+
+monthly_distance_df["year_month_dt"] = pd.to_datetime(monthly_distance_df["year_month"], format = "%Y-%m")
+
+full_range = pd.date_range(
+    start = monthly_distance_df["year_month_dt"].min(),
+    end = monthly_distance_df["year_month_dt"].max(),
+    freq = "MS"
+)
+
+monthly_distance_df = (
+    monthly_distance_df
+    .set_index("year_month_dt")
+    .reindex(full_range)
+    .rename_axis("year_month_dt")
+    .reset_index()
+)
+
+monthly_distance_df["total_distance"] = monthly_distance_df["total_distance"].fillna(0)
+
+monthly_chart = (
+    alt.Chart(monthly_distance_df)
+    .mark_bar(color = "#4a6154")
+    .encode(
+        x = alt.X(
+            "year_month_dt:T",
+            title = "Month",
+            axis = alt.Axis(format = "%b %Y", labelAngle = -45, tickCount = 20)
+        ),
+        y = alt.Y("total_distance", title = "Total Distance (mi)"),
+        tooltip = [
+            alt.Tooltip("year_month_dt:T", title = "Month", format = "%b %Y"),
+            alt.Tooltip("total_distance", title = "Distance (mi)", format = ".2f")
+        ]
+    )
+    .properties(
+        width = 700,
+        height = 350
+    )
+)
+
+st.subheader("Monthly Distance, All Time")
+st.altair_chart(monthly_chart, use_container_width = True)
 st.markdown("---")
