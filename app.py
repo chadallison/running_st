@@ -8,16 +8,19 @@ import streamlit as st
 
 st.set_page_config(page_title = "Chad's Running Report", layout = "wide")
 
+# google sheet info and csv url for reading data
 sheet_id = "1oBUbxvufTpkGjnDgfadvUeU9KMo7o71Iu0ykJwERzMc"
 sheet_name = "Sheet1"
 csv_url = f"https://docs.google.com/spreadsheets/d/{sheet_id}/gviz/tq?tqx=out:csv&sheet={sheet_name}"
 
+# load data from csv, parse date column as date type, drop 'run' column
 df = (
     pl.read_csv(csv_url)
     .drop("run")
     .with_columns(pl.col("date").str.strptime(pl.Date, "%m-%d-%Y"))
 )
 
+# get the most recent run row for summary display
 most_recent_run = df.sort(pl.col("date"), descending = True).head(1)
 row = most_recent_run.row(0)
 distance = row[most_recent_run.columns.index("distance")]
@@ -25,14 +28,20 @@ pace_float = row[most_recent_run.columns.index("pace")]
 elevation = row[most_recent_run.columns.index("elevation")]
 date_obj = row[most_recent_run.columns.index("date")]
 shoe = row[most_recent_run.columns.index("shoe")]
+
+# convert pace float (e.g., 8.5) to min:sec string (e.g., 8:30)
 pace_min = int(math.floor(pace_float))
 pace_sec = int(round((pace_float - pace_min) * 60))
 pace_str = f"{pace_min}:{pace_sec:02d}"
+
+# format date for display
 date_str = date_obj.strftime("%a, %b %d, %Y")
 
+# app title and separator
 st.title("Chad's Running Report")
 st.markdown("---")
 
+# display most recent run details
 st.subheader("Most Recent Run")
 st.markdown(
     f"Date: **{date_str}**  \n"
@@ -42,10 +51,12 @@ st.markdown(
 )
 st.markdown("---")
 
+# calculate total stats for all time
 total_dist = df.select(pl.col("distance")).sum().item()
 run_cnt = df.height
 avg_dist = total_dist / run_cnt
 
+# calculate total running time and convert seconds to days/hours/minutes/seconds
 total_time = df.select(pl.col("time")).sum().item()
 total_seconds = int(total_time * 60)
 days = total_seconds // 86400
@@ -54,6 +65,7 @@ minutes = (total_seconds % 3600) // 60
 seconds = total_seconds % 60
 formatted_time = f"{days}d {hours}h {minutes}m {seconds}s"
 
+# display all-time stats in four columns
 st.subheader("All-Time Stats")
 col1, col2, col3, col4 = st.columns(4)
 col1.metric("Total Distance", f"{total_dist:,.2f} mi")
@@ -62,6 +74,7 @@ col3.metric("Avg Distance", f"{avg_dist:,.2f} mi")
 col4.metric("Total Time", formatted_time)
 st.markdown("---")
 
+# calculate recent performance metrics for various recent time windows
 one_year_ago = datetime.today() - timedelta(days = 365)
 total_dist_365_days = df.filter(pl.col("date") >= one_year_ago).select(pl.col("distance")).sum().item()
 
@@ -74,6 +87,7 @@ this_month_dist = df.filter(pl.col("date").dt.year() == current_yr).filter(pl.co
 thirty_days_ago = datetime.today() - timedelta(days = 30)
 total_dist_30_days = df.filter(pl.col("date") >= thirty_days_ago).select(pl.col("distance")).sum().item()
 
+# display recent performance metrics in four columns
 st.subheader("Recent Performance")
 col5, col6, col7, col8 = st.columns(4)
 col5.metric("Past 365 Days", f"{total_dist_365_days:,.2f} mi")
@@ -82,6 +96,7 @@ col7.metric("This Month", f"{this_month_dist:,.2f} mi")
 col8.metric("Past 30 Days", f"{total_dist_30_days:,.2f} mi")
 st.markdown("---")
 
+# get list of shoes used in the last 60 days
 recent_shoes = (
     df
     .filter(pl.col("date") >= (datetime.today() - timedelta(days = 60)))
@@ -91,6 +106,7 @@ recent_shoes = (
     .to_list()
 )
 
+# aggregate shoe data for recent shoes
 recent_shoes_agg = (
     df
     .filter(pl.col("shoe").is_in(recent_shoes))
@@ -106,8 +122,10 @@ recent_shoes_agg = (
     .sort(pl.col("total_distance"), descending = True)
 )
 
+# convert aggregated shoe data to pandas for Altair plotting
 shoe_df = recent_shoes_agg.to_pandas()
 
+# create bar chart for shoe-level summary
 chart = (
     alt.Chart(shoe_df)
     .mark_bar()
@@ -126,20 +144,20 @@ chart = (
     .properties(height = 300)
 )
 
+# display shoe-level summary chart
 st.subheader("Shoe-Level Summary (Past 2 Months)")
 st.altair_chart(chart, use_container_width = True)
 st.markdown("---")
 
-#################
-### new stuff ###
-#################
-
+# filter data for current year
 df_year = df.filter(pl.col("date").dt.year() == datetime.now().year)
 
+# add column for week start date (monday) by subtracting weekday from date
 df_year = df_year.with_columns(
     (pl.col("date").cast(pl.Datetime) - pl.duration(days = pl.col("date").dt.weekday())).alias("week_start")
 )
 
+# aggregate total distance by week
 weekly_distance = (
     df_year
     .group_by("week_start")
@@ -147,8 +165,10 @@ weekly_distance = (
     .sort("week_start")
 )
 
+# convert weekly aggregated data to pandas for Altair
 weekly_distance_df = weekly_distance.to_pandas()
 
+# create line chart for weekly distance
 line_chart = (
     alt.Chart(weekly_distance_df)
     .mark_line(color = "#4a6154", strokeWidth = 3)
@@ -170,18 +190,17 @@ line_chart = (
     )
 )
 
+# display weekly distance line chart
 st.subheader(f"Weekly Distance for {datetime.now().year}")
 st.altair_chart(line_chart, use_container_width = True)
 st.markdown("---")
 
-###
-###
-###
-
+# create new column with year-month string for monthly aggregation
 df_monthly = df.with_columns(
     pl.col("date").dt.strftime("%Y-%m").alias("year_month")
 )
 
+# aggregate total distance by month
 monthly_distance = (
     df_monthly
     .group_by("year_month")
@@ -189,16 +208,20 @@ monthly_distance = (
     .sort("year_month")
 )
 
+# convert monthly aggregated data to pandas for Altair and date range handling
 monthly_distance_df = monthly_distance.to_pandas()
 
+# convert year_month string to datetime for proper date handling
 monthly_distance_df["year_month_dt"] = pd.to_datetime(monthly_distance_df["year_month"], format = "%Y-%m")
 
+# create a full monthly date range from min to max to include months with zero distance
 full_range = pd.date_range(
     start = monthly_distance_df["year_month_dt"].min(),
     end = monthly_distance_df["year_month_dt"].max(),
     freq = "MS"
 )
 
+# reindex to full monthly range and fill missing distances with 0
 monthly_distance_df = (
     monthly_distance_df
     .set_index("year_month_dt")
@@ -209,6 +232,7 @@ monthly_distance_df = (
 
 monthly_distance_df["total_distance"] = monthly_distance_df["total_distance"].fillna(0)
 
+# create monthly distance bar chart
 monthly_chart = (
     alt.Chart(monthly_distance_df)
     .mark_bar(color = "#4a6154")
@@ -230,6 +254,10 @@ monthly_chart = (
     )
 )
 
+# display monthly distance bar chart
 st.subheader("Monthly Distance, All Time")
 st.altair_chart(monthly_chart, use_container_width = True)
+st.markdown("---")
+
+st.write("The data in this report is sourced from a Google Sheet which I manually update. The data is a mixture of activities from Nike Run Club, Strava, and Garmin. I have only recently purchased and begun wearing my Garmin watch, and plan to use it as my source-of-truth data moving forward.")
 st.markdown("---")
