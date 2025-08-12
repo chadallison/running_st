@@ -3,8 +3,7 @@ import polars as pl
 from datetime import datetime, timedelta
 import math
 
-st.title("Chad's Running Report")
-st.markdown("---")
+st.set_page_config(page_title = "Chad's Running Report", layout = "wide")
 
 sheet_id = "1oBUbxvufTpkGjnDgfadvUeU9KMo7o71Iu0ykJwERzMc"
 sheet_name = "Sheet1"
@@ -28,28 +27,21 @@ pace_sec = int(round((pace_float - pace_min) * 60))
 pace_str = f"{pace_min}:{pace_sec:02d}"
 date_str = date_obj.strftime("%a, %b %d, %Y")
 
-st.header("Most recent run")
-st.subheader(
-    f"{distance:.2f} miles @ {pace_str} min/mi pace with "
-    f"{int(elevation)} feet of elevation gain on {date_str} in the {shoe}"
-)
+st.title("Chad's Running Report")
+st.markdown("---")
 
+st.subheader("Most Recent Run")
+st.markdown(
+    f"Date: **{date_str}**  \n"
+    f"**{distance:.2f} miles** @ **{pace_str} min/mi** pace  \n"
+    f"Elevation Gain: **{int(elevation)} ft**  \n"
+    f"Shoe: **{shoe}**"
+)
 st.markdown("---")
 
 total_dist = df.select(pl.col("distance")).sum().item()
-st.header("Total distance, all time")
-st.subheader(f"{total_dist:,.2f} miles")
-st.markdown("---")
-
 run_cnt = df.height
-st.header("Number of runs, all time")
-st.subheader(f"{run_cnt:,d}")
-st.markdown("---")
-
 avg_dist = total_dist / run_cnt
-st.header("Avg. distance per run, all time")
-st.subheader(f"{avg_dist:,.2f} miles")
-st.markdown("---")
 
 total_time = df.select(pl.col("time")).sum().item()
 total_seconds = int(total_time * 60)
@@ -57,28 +49,34 @@ days = total_seconds // 86400
 hours = (total_seconds % 86400) // 3600
 minutes = (total_seconds % 3600) // 60
 seconds = total_seconds % 60
-formatted = f"{days} days, {hours} hours, {minutes} minutes, {seconds} seconds"
-st.subheader(f"Total time running, all time: {formatted}")
+formatted_time = f"{days}d {hours}h {minutes}m {seconds}s"
+
+st.subheader("All-Time Stats")
+col1, col2, col3, col4 = st.columns(4)
+col1.metric("Total Distance", f"{total_dist:,.2f} mi")
+col2.metric("Number of Runs", f"{run_cnt:,d}")
+col3.metric("Avg Distance", f"{avg_dist:,.2f} mi")
+col4.metric("Total Time", formatted_time)
 st.markdown("---")
 
 one_year_ago = datetime.today() - timedelta(days = 365)
 total_dist_365_days = df.filter(pl.col("date") >= one_year_ago).select(pl.col("distance")).sum().item()
-st.subheader(f"Total distance, past 365 days: {total_dist_365_days:,.2f} miles")
-st.markdown("---")
 
 current_yr = datetime.now().year
 this_year_dist = df.filter(pl.col("date").dt.year() == current_yr).select(pl.col("distance")).sum().item()
-st.subheader(f"Total distance, {current_yr}: {this_year_dist:,.2f} miles")
-st.markdown("---")
 
 current_month = datetime.now().month
 this_month_dist = df.filter(pl.col("date").dt.year() == current_yr).filter(pl.col("date").dt.month() == current_month).select(pl.col("distance")).sum().item()
-st.subheader(f"Total distance, this month: {this_month_dist:,.2f} miles")
-st.markdown("---")
 
 thirty_days_ago = datetime.today() - timedelta(days = 30)
 total_dist_30_days = df.filter(pl.col("date") >= thirty_days_ago).select(pl.col("distance")).sum().item()
-st.subheader(f"Total distance, past 30 days: {total_dist_30_days:,.2f} miles")
+
+st.subheader("Recent Performance")
+col5, col6, col7, col8 = st.columns(4)
+col5.metric("Past 365 Days", f"{total_dist_365_days:,.2f} mi")
+col6.metric(f"{current_yr} YTD", f"{this_year_dist:,.2f} mi")
+col7.metric("This Month", f"{this_month_dist:,.2f} mi")
+col8.metric("Past 30 Days", f"{total_dist_30_days:,.2f} mi")
 st.markdown("---")
 
 recent_shoes = (
@@ -105,6 +103,6 @@ recent_shoes_agg = (
     .sort(pl.col("total_distance"), descending = True)
 )
 
-st.subheader("Shoe-level summary (shoes used in past two months)")
-st.dataframe(recent_shoes_agg)
+st.subheader("Shoe-Level Summary (Past 2 Months)")
+st.dataframe(recent_shoes_agg, use_container_width = True)
 st.markdown("---")
