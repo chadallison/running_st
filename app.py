@@ -117,7 +117,7 @@ chart = (
         tooltip = [
             alt.Tooltip("run_count", title = "Runs"),
             alt.Tooltip("total_distance", title = "Total Distance (mi)", format = ".2f"),
-            alt.Tooltip("avg_distance", title = "Avg Distance (mi)", format = ".2f"),
+            alt.Tooltip("avg_distance", title = "Avg. Distance (mi)", format = ".2f"),
             alt.Tooltip("max_distance", title = "Max Distance (mi)", format = ".2f"),
             alt.Tooltip("time_hours", title = "Total Time (hrs)", format = ".2f")
         ]
