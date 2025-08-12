@@ -18,11 +18,11 @@ df = (
 
 most_recent_run = df.sort(pl.col("date"), descending = True).head(1)
 row = most_recent_run.row(0)
-distance = row[most_recent_run.columns.index("distance") ]
-pace_float = row[most_recent_run.columns.index("pace") ]
-elevation = row[most_recent_run.columns.index("elevation") ]
-date_obj = row[most_recent_run.columns.index("date") ]
-shoe = row[ most_recent_run.columns.index("shoe") ]
+distance = row[most_recent_run.columns.index("distance")]
+pace_float = row[most_recent_run.columns.index("pace")]
+elevation = row[most_recent_run.columns.index("elevation")]
+date_obj = row[most_recent_run.columns.index("date")]
+shoe = row[most_recent_run.columns.index("shoe")]
 pace_min = int(math.floor(pace_float))
 pace_sec = int(round((pace_float - pace_min) * 60))
 pace_str = f"{pace_min}:{pace_sec:02d}"
