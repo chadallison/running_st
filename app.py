@@ -17,6 +17,9 @@ df = (
     pl.read_csv(csv_url)
     .drop("run")
     .with_columns(pl.col("date").str.strptime(pl.Date, "%m-%d-%Y"))
+    .with_columns((pl.col("elevation") / pl.col("distance")).alias("elevation_per_mile"))
+    .filter(pl.col("distance") >= 1)
+    .filter(pl.col("elevation_per_mile") <= 250)
 )
 
 # get the most recent run row for summary display
@@ -144,7 +147,7 @@ chart = (
 )
 
 # display shoe-level summary chart
-st.subheader("Shoe-Level Summary (Past 2 Months)")
+st.subheader("Shoe-Level Summary (Shoes Used in Past Two Months)")
 st.altair_chart(chart, use_container_width = True)
 st.markdown("---")
 
