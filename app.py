@@ -262,5 +262,64 @@ st.subheader("Monthly Distance, All Time")
 st.altair_chart(monthly_chart, use_container_width = True)
 st.markdown("---")
 
+# filter data for current year
+df_year_elev = df.filter(pl.col("date").dt.year() == datetime.now().year)
+
+# add week_start column (Monday) by subtracting weekday from date
+df_year_elev = df_year_elev.with_columns(
+    (pl.col("date").cast(pl.Datetime) - pl.duration(days = pl.col("date").dt.weekday())).alias("week_start")
+)
+
+# aggregate total elevation gain by week (in feet)
+weekly_elevation = (
+    df_year_elev
+    .group_by("week_start")
+    .agg(pl.col("elevation").sum().alias("total_elevation_ft"))
+    .sort("week_start")
+)
+
+# convert to miles and calculate cumulative
+weekly_elevation = weekly_elevation.with_columns(
+    (pl.col("total_elevation_ft") / 5280).alias("total_elevation_mi"),
+    (pl.col("total_elevation_ft") / 5280).cum_sum().alias("cumulative_elevation_mi")
+)
+
+# convert to pandas for Altair
+weekly_elevation_df = weekly_elevation.to_pandas()
+
+# create cumulative elevation area chart (miles)
+elev_chart = (
+    alt.Chart(weekly_elevation_df)
+    .mark_area(
+        color = "#4a6154",
+        opacity = 0.7
+    )
+    .encode(
+        x = alt.X(
+            "week_start:T",
+            title = "Week Starting",
+            axis = alt.Axis(format = "%b %d", labelAngle = -45, tickCount = 20)
+        ),
+        y = alt.Y("cumulative_elevation_mi", title = "Cumulative Elevation Gain (mi)"),
+        tooltip = [
+            alt.Tooltip("week_start:T", title = "Week Starting", format = "%Y-%m-%d"),
+            alt.Tooltip("total_elevation_mi", title = "Weekly Gain (mi)", format = ".2f"),
+            alt.Tooltip("cumulative_elevation_mi", title = "Cumulative Gain (mi)", format = ".2f")
+        ]
+    )
+    .properties(
+        width = 700,
+        height = 350
+    )
+)
+
+st.subheader(f"Cumulative Weekly Elevation Gain for {datetime.now().year}")
+st.altair_chart(elev_chart, use_container_width = True)
+st.markdown("---")
+
+#####################
+### new work here ###
+#####################
+
 st.write("The data in this report is sourced from a Google Sheet which I manually update. The data is a mixture of activities from Nike Run Club, Strava, and Garmin. I have only recently purchased and begun wearing my Garmin watch, and plan to use it as my source-of-truth data moving forward.")
 st.markdown("---")
