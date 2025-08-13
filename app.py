@@ -5,7 +5,6 @@ import pandas as pd
 import polars as pl
 import streamlit as st
 
-
 st.set_page_config(page_title = "Chad's Running Report", layout = "wide")
 
 # google sheet info and csv url for reading data
@@ -235,7 +234,7 @@ monthly_distance_df["total_distance"] = monthly_distance_df["total_distance"].fi
 # create monthly distance bar chart
 monthly_chart = (
     alt.Chart(monthly_distance_df)
-    .mark_bar(color = "#4a6154")
+    .mark_bar(color = "#4a6154", size = 10)
     .encode(
         x = alt.X(
             "year_month_dt:T",
@@ -252,6 +251,7 @@ monthly_chart = (
         width = 700,
         height = 350
     )
+
 )
 
 # display monthly distance bar chart
