@@ -317,6 +317,37 @@ st.subheader(f"Cumulative Weekly Elevation Gain for {datetime.now().year}")
 st.altair_chart(elev_chart, use_container_width = True)
 st.markdown("---")
 
+st.subheader("All Runs")
+
+res = (
+    df
+    .with_columns([
+        pl.col("elevation_per_mile").round(2),
+        (
+            pl.col("pace").floor().cast(pl.Int32).cast(pl.Utf8)  # pace minutes
+            + ":" +
+            (((pl.col("pace") % 1) * 60).round(0).cast(pl.Int32).cast(pl.Utf8).str.zfill(2))  # pace seconds
+        ).alias("pace"),
+        (
+            pl.col("time").floor().cast(pl.Int32).cast(pl.Utf8)  # time minutes
+            + ":" +
+            (((pl.col("time") % 1) * 60).round(0).cast(pl.Int32).cast(pl.Utf8).str.zfill(2))  # time seconds
+        ).alias("time"),
+        pl.col("date").cast(pl.Utf8)  # convert date to string
+    ])
+    .select(["date", "distance", "pace", "time", "calories", "elevation", "bpm", "elevation_per_mile", "shoe"])
+    .sort(pl.col("date"), descending = True)
+)
+
+st.dataframe(res)
+st.markdown("---")
+
+#####################
+### new work here ###
+#####################
+
+
+
 #####################
 ### new work here ###
 #####################
