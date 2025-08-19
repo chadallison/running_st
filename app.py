@@ -78,25 +78,46 @@ st.markdown("---")
 
 # calculate recent performance metrics for various recent time windows
 one_year_ago = datetime.today() - timedelta(days = 365)
-total_dist_365_days = df.filter(pl.col("date") >= one_year_ago).select(pl.col("distance")).sum().item()
+total_dist_365_days = (
+    df.filter(pl.col("date") >= one_year_ago)
+      .select(pl.col("distance")).sum().item()
+)
 
 current_yr = datetime.now().year
-this_year_dist = df.filter(pl.col("date").dt.year() == current_yr).select(pl.col("distance")).sum().item()
+this_year_dist = (
+    df.filter(pl.col("date").dt.year() == current_yr)
+      .select(pl.col("distance")).sum().item()
+)
 
 current_month = datetime.now().month
-this_month_dist = df.filter(pl.col("date").dt.year() == current_yr).filter(pl.col("date").dt.month() == current_month).select(pl.col("distance")).sum().item()
+this_month_dist = (
+    df.filter(pl.col("date").dt.year() == current_yr)
+      .filter(pl.col("date").dt.month() == current_month)
+      .select(pl.col("distance")).sum().item()
+)
 
 thirty_days_ago = datetime.today() - timedelta(days = 30)
-total_dist_30_days = df.filter(pl.col("date") >= thirty_days_ago).select(pl.col("distance")).sum().item()
+total_dist_30_days = (
+    df.filter(pl.col("date") >= thirty_days_ago)
+      .select(pl.col("distance")).sum().item()
+)
 
-# display recent performance metrics in four columns
+seven_days_ago = datetime.today() - timedelta(days = 7)
+total_dist_7_days = (
+    df.filter(pl.col("date") >= seven_days_ago)
+      .select(pl.col("distance")).sum().item()
+)
+
+# display recent performance metrics in five columns
 st.subheader("Recent Performance")
-col5, col6, col7, col8 = st.columns(4)
+col5, col6, col7, col8, col9 = st.columns(5)
 col5.metric("Past 365 Days", f"{total_dist_365_days:,.2f} mi")
 col6.metric(f"{current_yr} YTD", f"{this_year_dist:,.2f} mi")
 col7.metric("This Month", f"{this_month_dist:,.2f} mi")
 col8.metric("Past 30 Days", f"{total_dist_30_days:,.2f} mi")
+col9.metric("Past 7 Days", f"{total_dist_7_days:,.2f} mi")
 st.markdown("---")
+
 
 # get list of shoes used in the last 60 days
 recent_shoes = (
