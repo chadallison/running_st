@@ -317,6 +317,72 @@ st.subheader(f"Cumulative Weekly Elevation Gain for {datetime.now().year}")
 st.altair_chart(elev_chart, use_container_width = True)
 st.markdown("---")
 
+res_year = df.filter(pl.col("date").dt.year() == current_yr)
+
+res_year_df = res_year.to_pandas()
+res_year_df["pace_str"] = (
+    res_year_df["pace"].astype(int).astype(str)
+    + ":"
+    + ((res_year_df["pace"] % 1) * 60).round(0).astype(int).astype(str).str.zfill(2)
+)
+
+pace_min, pace_max = res_year_df["pace"].min(), res_year_df["pace"].max()
+distance_min, distance_max = res_year_df["distance"].min(), res_year_df["distance"].max()
+mean_distance, mean_pace = res_year_df["distance"].mean(), res_year_df["pace"].mean()
+
+scatter = (
+    alt.Chart(res_year_df)
+    .mark_circle(size = 80, opacity = 0.75)
+    .encode(
+        x = alt.X(
+            "distance",
+            title = "Distance (mi.)",
+            scale = alt.Scale(domain = [distance_min, distance_max])
+        ),
+        y = alt.Y(
+            "pace",
+            scale = alt.Scale(domain = [pace_min, pace_max]),
+            axis = alt.Axis(
+                title = "Pace (mm:ss)",
+                labelExpr = "floor(datum.value) + ':' + format(round((datum.value % 1)*60), '02')"
+            )
+        ),
+        color = alt.Color(
+            "shoe",
+            legend = alt.Legend(title = "Shoe")
+        ),
+        tooltip = [
+            "date:T",
+            "distance",
+            alt.Tooltip("pace_str", title = "pace"),
+            "elevation"
+        ]
+    )
+)
+
+mean_distance_line = alt.Chart(pd.DataFrame({"mean_distance": [mean_distance]})).mark_rule(
+    color = "white",
+    strokeDash = [5, 5]
+).encode(x = "mean_distance:Q")
+
+mean_pace_line = alt.Chart(pd.DataFrame({"mean_pace": [mean_pace]})).mark_rule(
+    color = "white",
+    strokeDash = [5, 5]
+).encode(y = "mean_pace:Q")
+
+scatter_chart = (
+    scatter
+    + mean_distance_line
+    + mean_pace_line
+).properties(
+    width = 700,
+    height = 400
+)
+
+st.subheader(f"Distance vs. Pace ({current_yr})")
+st.altair_chart(scatter_chart, use_container_width = True)
+st.markdown("---")
+
 st.subheader("All Runs")
 
 res = (
@@ -324,16 +390,16 @@ res = (
     .with_columns([
         pl.col("elevation_per_mile").round(2),
         (
-            pl.col("pace").floor().cast(pl.Int32).cast(pl.Utf8)  # pace minutes
+            pl.col("pace").floor().cast(pl.Int32).cast(pl.Utf8)
             + ":" +
-            (((pl.col("pace") % 1) * 60).round(0).cast(pl.Int32).cast(pl.Utf8).str.zfill(2))  # pace seconds
+            (((pl.col("pace") % 1) * 60).round(0).cast(pl.Int32).cast(pl.Utf8).str.zfill(2))
         ).alias("pace"),
         (
-            pl.col("time").floor().cast(pl.Int32).cast(pl.Utf8)  # time minutes
+            pl.col("time").floor().cast(pl.Int32).cast(pl.Utf8)
             + ":" +
-            (((pl.col("time") % 1) * 60).round(0).cast(pl.Int32).cast(pl.Utf8).str.zfill(2))  # time seconds
+            (((pl.col("time") % 1) * 60).round(0).cast(pl.Int32).cast(pl.Utf8).str.zfill(2))
         ).alias("time"),
-        pl.col("date").cast(pl.Utf8)  # convert date to string
+        pl.col("date").cast(pl.Utf8)
     ])
     .select(["date", "distance", "pace", "time", "calories", "elevation", "bpm", "elevation_per_mile", "shoe"])
     .sort(pl.col("date"), descending = True)
@@ -341,16 +407,6 @@ res = (
 
 st.dataframe(res)
 st.markdown("---")
-
-#####################
-### new work here ###
-#####################
-
-
-
-#####################
-### new work here ###
-#####################
 
 st.write("The data in this report is sourced from a Google Sheet which I manually update. The data is a mixture of activities from Nike Run Club, Strava, and Garmin. I have only recently purchased and begun wearing my Garmin watch, and plan to use it as my source-of-truth data moving forward.")
 st.markdown("---")
