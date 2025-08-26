@@ -404,6 +404,42 @@ st.subheader(f"Distance vs. Pace ({current_yr})")
 st.altair_chart(scatter_chart, use_container_width = True)
 st.markdown("---")
 
+shoe_summary = (
+    df
+    .group_by("shoe")
+    .agg(
+        pl.count().alias("run_count"),
+        pl.col("distance").sum().round(2).alias("total_distance"),
+        (pl.col("time").sum() / 60).round(2).alias("total_time"),
+        pl.col("distance").mean().round(2).alias("avg_distance"),
+        pl.col("pace").mean().alias("avg_pace_float"),
+        pl.col("distance").max().round(2).alias("max_distance"),
+        pl.col("date").min().alias("first_run"),
+        pl.col("date").max().alias("most_recent_date")
+    )
+    .sort("total_distance", descending = True)
+    .to_pandas()
+    .reset_index(drop = True)
+)
+
+shoe_summary["avg_pace"] = shoe_summary["avg_pace_float"].apply(
+    lambda p: f"{int(p):d}:{int(round((p % 1) * 60)):02d}"
+)
+
+shoe_summary["first_run"] = pd.to_datetime(shoe_summary["first_run"]).dt.strftime("%b %d, %Y")
+shoe_summary["most_recent_date"] = pd.to_datetime(shoe_summary["most_recent_date"]).dt.strftime("%b %d, %Y")
+
+shoe_summary = shoe_summary.drop(columns = ["avg_pace_float"])
+
+shoe_summary = shoe_summary[
+    ["shoe", "run_count", "total_distance", "avg_distance", "max_distance",
+     "total_time", "avg_pace", "first_run", "most_recent_date"]
+]
+
+st.subheader("Lifetime Shoe Summary")
+st.dataframe(shoe_summary, hide_index = True)
+st.markdown("---")
+
 st.subheader("All Runs")
 
 res = (
