@@ -7,320 +7,184 @@ import streamlit as st
 
 st.set_page_config(page_title = "Chad's Running Report", layout = "wide")
 
-# google sheet info and csv url for reading data
-sheet_id = "1oBUbxvufTpkGjnDgfadvUeU9KMo7o71Iu0ykJwERzMc"
-sheet_name = "Sheet1"
-csv_url = f"https://docs.google.com/spreadsheets/d/{sheet_id}/gviz/tq?tqx=out:csv&sheet={sheet_name}"
+# -------- Helpers -------- #
+def format_pace(pace_float):
+    if pace_float is None or pd.isna(pace_float):
+        return "-"
+    pace_min = int(math.floor(pace_float))
+    pace_sec = int(round((pace_float - pace_min) * 60))
+    return f"{pace_min}:{pace_sec:02d}"
 
-# load data from csv, parse date column as date type, drop 'run' column
+def format_time_minutes(total_minutes):
+    if total_minutes is None or pd.isna(total_minutes):
+        return "-"
+    total_seconds = int(total_minutes * 60)
+    days = total_seconds // 86400
+    hours = (total_seconds % 86400) // 3600
+    minutes = (total_seconds % 3600) // 60
+    seconds = total_seconds % 60
+    return f"{days}d {hours}h {minutes}m {seconds}s"
+
+def section_break():
+    st.markdown("---")
+
+def sum_distance(df_filtered):
+    return df_filtered.select(pl.col("distance")).sum().item()
+
+def aggregate_by_period(df, date_col = "date", period = "week", sum_col = "distance"):
+    if period == "week":
+        df_agg = df.with_columns((pl.col(date_col).cast(pl.Datetime) - pl.duration(days = pl.col(date_col).dt.weekday())).alias("week_start"))
+        group_col = "week_start"
+        df_agg = df_agg.group_by(group_col).agg(pl.col(sum_col).sum().alias("total_distance")).sort(group_col).to_pandas()
+    else:
+        df_agg = df.with_columns(pl.col(date_col).dt.strftime("%Y-%m").alias("month"))
+        df_agg = df_agg.group_by("month").agg(pl.col(sum_col).sum().alias("total_distance")).sort("month").to_pandas()
+        df_agg["month_dt"] = pd.to_datetime(df_agg["month"], format = "%Y-%m")
+        full_range = pd.date_range(df_agg["month_dt"].min(), df_agg["month_dt"].max(), freq = "MS")
+        df_agg = df_agg.set_index("month_dt").reindex(full_range).rename_axis("month_dt").reset_index()
+        df_agg["total_distance"] = df_agg["total_distance"].fillna(0)
+    return df_agg
+
+def plot_bar_chart(df_plot, x_col, y_col, x_title, y_title, width = 700, height = 350, tooltip_cols = None, color = "#4a6154", size = None, axis_format = None):
+    tooltip_cols = tooltip_cols or []
+    if axis_format:
+        x_axis = alt.X(x_col + ":T", title = x_title, axis = alt.Axis(format = axis_format, labelAngle = -45, tickCount = 20))
+    else:
+        x_axis = alt.X(x_col + (":T" if "date" in x_col or "week" in x_col or "month" in x_col else ":Q"), title = x_title)
+    mark_bar_args = {"color": color}
+    if size is not None:
+        mark_bar_args["size"] = size
+    chart = (
+        alt.Chart(df_plot)
+        .mark_bar(**mark_bar_args)
+        .encode(
+            x = x_axis,
+            y = alt.Y(y_col, title = y_title),
+            tooltip = [alt.Tooltip(c, format = ".2f") if df_plot[c].dtype in [float, int] else alt.Tooltip(c) for c in tooltip_cols]
+        )
+        .properties(width = width, height = height)
+    )
+    return chart
+
+# -------- Load Data -------- #
+sheet_id = "1oBUbxvufTpkGjnDgfadvUeU9KMo7o71Iu0ykJwERzMc"
+csv_url = f"https://docs.google.com/spreadsheets/d/{sheet_id}/gviz/tq?tqx=out:csv&sheet=Sheet1"
+
 df = (
     pl.read_csv(csv_url)
     .drop("run")
-    .with_columns(pl.col("date").str.strptime(pl.Date, "%m-%d-%Y"))
-    .with_columns((pl.col("elevation") / pl.col("distance")).alias("elevation_per_mile"))
-    .filter(pl.col("distance") >= 1)
-    .filter(pl.col("elevation_per_mile") <= 250)
+    .with_columns([
+        pl.col("date").str.strptime(pl.Date, "%m-%d-%Y"),
+        (pl.col("elevation") / pl.col("distance")).alias("elevation_per_mile")
+    ])
+    .filter((pl.col("distance") >= 1) & (pl.col("elevation_per_mile") <= 250))
 )
 
-# get the most recent run row for summary display
-most_recent_run = df.sort(pl.col("date"), descending = True).head(1)
-row = most_recent_run.row(0)
-distance = row[most_recent_run.columns.index("distance")]
-pace_float = row[most_recent_run.columns.index("pace")]
-elevation = row[most_recent_run.columns.index("elevation")]
-date_obj = row[most_recent_run.columns.index("date")]
-shoe = row[most_recent_run.columns.index("shoe")]
+today = datetime.today()
+current_year = today.year
 
-# convert pace float (e.g., 8.5) to min:sec string (e.g., 8:30)
-pace_min = int(math.floor(pace_float))
-pace_sec = int(round((pace_float - pace_min) * 60))
-pace_str = f"{pace_min}:{pace_sec:02d}"
+# -------- Precompute Filters -------- #
+df_current_year = df.filter(pl.col("date").dt.year() == current_year)
+df_past_365 = df.filter(pl.col("date") >= (today - timedelta(days = 365)))
+df_past_30 = df.filter(pl.col("date") >= (today - timedelta(days = 30)))
+df_past_7 = df.filter(pl.col("date") >= (today - timedelta(days = 7)))
+df_current_month = df.filter((pl.col("date").dt.year() == current_year) & (pl.col("date").dt.month() == today.month))
 
-# format date for display
-date_str = date_obj.strftime("%a, %b %d, %Y")
+# -------- Most Recent Run -------- #
+row = df.sort(pl.col("date"), descending = True).row(0)
+distance, pace_float, elevation, date_obj, shoe = [row[df.columns.index(c)] for c in ["distance", "pace", "elevation", "date", "shoe"]]
 
-# app title and separator
 st.title("Chad's Running Report")
-st.markdown("---")
+section_break()
 
-# display most recent run details
 st.subheader("Most Recent Run")
 st.markdown(
-    f"Date: **{date_str}**  \n"
-    f"**{distance:.2f} miles** @ **{pace_str} min/mi** pace  \n"
+    f"Date: **{date_obj.strftime('%a, %b %d, %Y')}**  \n"
+    f"**{distance:.2f} miles** @ **{format_pace(pace_float)} min/mi** pace  \n"
     f"Elevation Gain: **{int(elevation)} ft**  \n"
     f"Shoe: **{shoe}**"
 )
-st.markdown("---")
+section_break()
 
-# calculate total stats for all time
+# -------- All-Time Stats -------- #
 total_dist = df.select(pl.col("distance")).sum().item()
 run_cnt = df.height
 avg_dist = total_dist / run_cnt
-
-# calculate total running time and convert seconds to days/hours/minutes/seconds
 total_time = df.select(pl.col("time")).sum().item()
-total_seconds = int(total_time * 60)
-days = total_seconds // 86400
-hours = (total_seconds % 86400) // 3600
-minutes = (total_seconds % 3600) // 60
-seconds = total_seconds % 60
-formatted_time = f"{days}d {hours}h {minutes}m {seconds}s"
 
-# display all-time stats in four columns
 st.subheader("All-Time Stats")
 col1, col2, col3, col4 = st.columns(4)
 col1.metric("Total Distance", f"{total_dist:,.2f} mi")
 col2.metric("Number of Runs", f"{run_cnt:,d}")
 col3.metric("Avg Distance", f"{avg_dist:,.2f} mi")
-col4.metric("Total Time", formatted_time)
-st.markdown("---")
+col4.metric("Total Time", format_time_minutes(total_time))
+section_break()
 
-# calculate recent performance metrics for various recent time windows
-one_year_ago = datetime.today() - timedelta(days = 365)
-total_dist_365_days = (
-    df.filter(pl.col("date") >= one_year_ago)
-      .select(pl.col("distance")).sum().item()
-)
+# -------- Recent Performance -------- #
+recent_metrics = {
+    "Past 365 Days": df_past_365,
+    f"{current_year} YTD": df_current_year,
+    "This Month": df_current_month,
+    "Past 30 Days": df_past_30,
+    "Past 7 Days": df_past_7
+}
 
-current_yr = datetime.now().year
-this_year_dist = (
-    df.filter(pl.col("date").dt.year() == current_yr)
-      .select(pl.col("distance")).sum().item()
-)
-
-current_month = datetime.now().month
-this_month_dist = (
-    df.filter(pl.col("date").dt.year() == current_yr)
-      .filter(pl.col("date").dt.month() == current_month)
-      .select(pl.col("distance")).sum().item()
-)
-
-thirty_days_ago = datetime.today() - timedelta(days = 30)
-total_dist_30_days = (
-    df.filter(pl.col("date") >= thirty_days_ago)
-      .select(pl.col("distance")).sum().item()
-)
-
-seven_days_ago = datetime.today() - timedelta(days = 7)
-total_dist_7_days = (
-    df.filter(pl.col("date") >= seven_days_ago)
-      .select(pl.col("distance")).sum().item()
-)
-
-# display recent performance metrics in five columns
 st.subheader("Recent Performance")
-col5, col6, col7, col8, col9 = st.columns(5)
-col5.metric("Past 365 Days", f"{total_dist_365_days:,.2f} mi")
-col6.metric(f"{current_yr} YTD", f"{this_year_dist:,.2f} mi")
-col7.metric("This Month", f"{this_month_dist:,.2f} mi")
-col8.metric("Past 30 Days", f"{total_dist_30_days:,.2f} mi")
-col9.metric("Past 7 Days", f"{total_dist_7_days:,.2f} mi")
-st.markdown("---")
+cols = st.columns(len(recent_metrics))
+for col, (label, df_filtered) in zip(cols, recent_metrics.items()):
+    col.metric(label, f"{sum_distance(df_filtered):,.2f} mi")
+section_break()
 
-
-# get list of shoes used in the last 60 days
-recent_shoes = (
-    df
-    .filter(pl.col("date") >= (datetime.today() - timedelta(days = 60)))
-    .select(pl.col("shoe"))
-    .unique()
-    .to_series()
-    .to_list()
-)
-
-# aggregate shoe data for recent shoes
-recent_shoes_agg = (
-    df
-    .filter(pl.col("shoe").is_in(recent_shoes))
-    .group_by(pl.col("shoe"))
-    .agg(
-        pl.col("shoe").count().alias("run_count"),
+# -------- Shoe-Level Summary (past 60 days) -------- #
+recent_shoes = df.filter(pl.col("date") >= (today - timedelta(days = 60))).select(pl.col("shoe")).unique().to_series().to_list()
+shoe_df = (
+    df.filter(pl.col("shoe").is_in(recent_shoes))
+    .group_by("shoe")
+    .agg([
+        pl.len().alias("run_count"),
         pl.col("distance").sum().alias("total_distance"),
         pl.col("distance").mean().round(2).alias("avg_distance"),
         pl.col("distance").max().alias("max_distance"),
-        pl.col("time").max().alias("max_time_minutes"),
         (pl.col("time").sum() / 60).round(2).alias("time_hours")
-    )
-    .sort(pl.col("total_distance"), descending = True)
+    ])
+    .sort("total_distance", descending = True)
+    .to_pandas()
 )
-
-# convert aggregated shoe data to pandas for Altair plotting
-shoe_df = recent_shoes_agg.to_pandas()
-
-# create bar chart for shoe-level summary
-chart = (
-    alt.Chart(shoe_df)
-    .mark_bar()
-    .encode(
-        x = alt.X("total_distance", title = "Total Distance (mi)"),
-        y = alt.Y("shoe", sort = "-x", title = "Shoe"),
-        color = alt.value("#4a6154"),
-        tooltip = [
-            alt.Tooltip("run_count", title = "Runs"),
-            alt.Tooltip("total_distance", title = "Total Distance (mi)", format = ".2f"),
-            alt.Tooltip("avg_distance", title = "Avg. Distance (mi)", format = ".2f"),
-            alt.Tooltip("max_distance", title = "Max Distance (mi)", format = ".2f"),
-            alt.Tooltip("time_hours", title = "Total Time (hrs)", format = ".2f")
-        ]
-    )
-    .properties(height = 300)
-)
-
-# display shoe-level summary chart
+chart = plot_bar_chart(shoe_df, "total_distance", "shoe", "Total Distance (mi)", "Shoe",
+                       tooltip_cols = ["run_count","total_distance","avg_distance","max_distance","time_hours"])
 st.subheader("Shoe-Level Summary (Shoes Used in Past Two Months)")
 st.altair_chart(chart, use_container_width = True)
-st.markdown("---")
+section_break()
 
-# filter data for current year
-df_year = df.filter(pl.col("date").dt.year() == datetime.now().year)
+# -------- Weekly Distance Chart -------- #
+weekly_df = aggregate_by_period(df_current_year, period = "week")
+weekly_chart = plot_bar_chart(weekly_df, "week_start", "total_distance", "Week Starting", "Total Distance (mi)",
+                              tooltip_cols = ["total_distance"], size = 25, axis_format = "%b %d")
+st.subheader(f"Weekly Distance for {current_year}")
+st.altair_chart(weekly_chart, use_container_width = True)
+section_break()
 
-# add column for week start date (monday) by subtracting weekday from date
-df_year = df_year.with_columns(
-    (pl.col("date").cast(pl.Datetime) - pl.duration(days = pl.col("date").dt.weekday())).alias("week_start")
-)
-
-# aggregate total distance by week
-weekly_distance = (
-    df_year
-    .group_by("week_start")
-    .agg(pl.col("distance").sum().alias("total_distance"))
-    .sort("week_start")
-)
-
-# convert weekly aggregated data to pandas for Altair
-weekly_distance_df = weekly_distance.to_pandas()
-
-# create bar chart for weekly distance instead of line chart
-bar_chart = (
-    alt.Chart(weekly_distance_df)
-    .mark_bar(color = "#4a6154", size = 25)
-    .encode(
-        x = alt.X(
-            "week_start:T",
-            title = "Week Starting",
-            axis = alt.Axis(format = "%b %d", labelAngle = -45, tickCount = 20)
-        ),
-        y = alt.Y("total_distance", title = "Total Distance (mi)"),
-        tooltip = [
-            alt.Tooltip("week_start:T", title = "Week Starting", format = "%Y-%m-%d"),
-            alt.Tooltip("total_distance", title = "Distance (mi)", format = ".2f")
-        ]
-    )
-    .properties(
-        width = 700,
-        height = 350
-    )
-)
-
-# display weekly distance bar chart
-st.subheader(f"Weekly Distance for {datetime.now().year}")
-st.altair_chart(bar_chart, use_container_width = True)
-st.markdown("---")
-
-# create new column with year-month string for monthly aggregation
-df_monthly = df.with_columns(
-    pl.col("date").dt.strftime("%Y-%m").alias("year_month")
-)
-
-# aggregate total distance by month
-monthly_distance = (
-    df_monthly
-    .group_by("year_month")
-    .agg(pl.col("distance").sum().alias("total_distance"))
-    .sort("year_month")
-)
-
-# convert monthly aggregated data to pandas for Altair and date range handling
-monthly_distance_df = monthly_distance.to_pandas()
-
-# convert year_month string to datetime for proper date handling
-monthly_distance_df["year_month_dt"] = pd.to_datetime(monthly_distance_df["year_month"], format = "%Y-%m")
-
-# create a full monthly date range from min to max to include months with zero distance
-full_range = pd.date_range(
-    start = monthly_distance_df["year_month_dt"].min(),
-    end = monthly_distance_df["year_month_dt"].max(),
-    freq = "MS"
-)
-
-# reindex to full monthly range and fill missing distances with 0
-monthly_distance_df = (
-    monthly_distance_df
-    .set_index("year_month_dt")
-    .reindex(full_range)
-    .rename_axis("year_month_dt")
-    .reset_index()
-)
-
-monthly_distance_df["total_distance"] = monthly_distance_df["total_distance"].fillna(0)
-
-# create monthly distance bar chart
-monthly_chart = (
-    alt.Chart(monthly_distance_df)
-    .mark_bar(color = "#4a6154", size = 10)
-    .encode(
-        x = alt.X(
-            "year_month_dt:T",
-            title = "Month",
-            axis = alt.Axis(format = "%b %Y", labelAngle = -45, tickCount = 20)
-        ),
-        y = alt.Y("total_distance", title = "Total Distance (mi)"),
-        tooltip = [
-            alt.Tooltip("year_month_dt:T", title = "Month", format = "%b %Y"),
-            alt.Tooltip("total_distance", title = "Distance (mi)", format = ".2f")
-        ]
-    )
-    .properties(
-        width = 700,
-        height = 350
-    )
-
-)
-
-# display monthly distance bar chart
+# -------- Monthly Distance Chart -------- #
+monthly_df = aggregate_by_period(df, period = "month")
+monthly_chart = plot_bar_chart(monthly_df, "month_dt", "total_distance", "Month", "Total Distance (mi)",
+                               tooltip_cols = ["total_distance"], size = 10, axis_format = "%b %Y")
 st.subheader("Monthly Distance, All Time")
 st.altair_chart(monthly_chart, use_container_width = True)
-st.markdown("---")
+section_break()
 
-# filter data for current year
-df_year_elev = df.filter(pl.col("date").dt.year() == datetime.now().year)
-
-# add week_start column (Monday) by subtracting weekday from date
-df_year_elev = df_year_elev.with_columns(
-    (pl.col("date").cast(pl.Datetime) - pl.duration(days = pl.col("date").dt.weekday())).alias("week_start")
-)
-
-# aggregate total elevation gain by week (in feet)
-weekly_elevation = (
-    df_year_elev
-    .group_by("week_start")
-    .agg(pl.col("elevation").sum().alias("total_elevation_ft"))
-    .sort("week_start")
-)
-
-# convert to miles and calculate cumulative
-weekly_elevation = weekly_elevation.with_columns(
+# -------- Weekly Elevation Gain -------- #
+df_elev_year = df_current_year.with_columns((pl.col("date").cast(pl.Datetime) - pl.duration(days = pl.col("date").dt.weekday())).alias("week_start"))
+weekly_elev = df_elev_year.group_by("week_start").agg(pl.col("elevation").sum().alias("total_elevation_ft")).sort("week_start")
+weekly_elev = weekly_elev.with_columns(
     (pl.col("total_elevation_ft") / 5280).alias("total_elevation_mi"),
     (pl.col("total_elevation_ft") / 5280).cum_sum().alias("cumulative_elevation_mi")
 )
-
-# convert to pandas for Altair
-weekly_elevation_df = weekly_elevation.to_pandas()
-
-# create cumulative elevation area chart (miles)
+weekly_elev_df = weekly_elev.to_pandas()
 elev_chart = (
-    alt.Chart(weekly_elevation_df)
-    .mark_area(
-        color = "#4a6154",
-        opacity = 0.7
-    )
+    alt.Chart(weekly_elev_df)
+    .mark_area(color = "#4a6154", opacity = 0.7)
     .encode(
-        x = alt.X(
-            "week_start:T",
-            title = "Week Starting",
-            axis = alt.Axis(format = "%b %d", labelAngle = -45, tickCount = 20)
-        ),
+        x = alt.X("week_start:T", title = "Week Starting", axis = alt.Axis(format = "%b %d", labelAngle = -45, tickCount = 20)),
         y = alt.Y("cumulative_elevation_mi", title = "Cumulative Elevation Gain (mi)"),
         tooltip = [
             alt.Tooltip("week_start:T", title = "Week Starting", format = "%Y-%m-%d"),
@@ -328,87 +192,39 @@ elev_chart = (
             alt.Tooltip("cumulative_elevation_mi", title = "Cumulative Gain (mi)", format = ".2f")
         ]
     )
-    .properties(
-        width = 700,
-        height = 350
-    )
+    .properties(width = 700, height = 350)
 )
-
-st.subheader(f"Cumulative Weekly Elevation Gain for {datetime.now().year}")
+st.subheader(f"Cumulative Weekly Elevation Gain for {current_year}")
 st.altair_chart(elev_chart, use_container_width = True)
-st.markdown("---")
+section_break()
 
-res_year = df.filter(pl.col("date").dt.year() == current_yr)
-
-res_year_df = res_year.to_pandas()
-res_year_df["pace_str"] = (
-    res_year_df["pace"].astype(int).astype(str)
-    + ":"
-    + ((res_year_df["pace"] % 1) * 60).round(0).astype(int).astype(str).str.zfill(2)
-)
-
-pace_min, pace_max = res_year_df["pace"].min(), res_year_df["pace"].max()
+# -------- Distance vs Pace Scatter -------- #
+res_year_df = df_current_year.to_pandas()
+res_year_df["pace_str"] = res_year_df["pace"].apply(format_pace)
 distance_min, distance_max = res_year_df["distance"].min(), res_year_df["distance"].max()
+pace_min, pace_max = res_year_df["pace"].min(), res_year_df["pace"].max()
 mean_distance, mean_pace = res_year_df["distance"].mean(), res_year_df["pace"].mean()
 
-scatter = (
-    alt.Chart(res_year_df)
-    .mark_circle(size = 80, opacity = 0.75)
-    .encode(
-        x = alt.X(
-            "distance",
-            title = "Distance (mi.)",
-            scale = alt.Scale(domain = [distance_min, distance_max])
-        ),
-        y = alt.Y(
-            "pace",
-            scale = alt.Scale(domain = [pace_min, pace_max]),
-            axis = alt.Axis(
-                title = "Pace (mm:ss)",
-                labelExpr = "floor(datum.value) + ':' + format(round((datum.value % 1)*60), '02')"
-            )
-        ),
-        color = alt.Color(
-            "shoe",
-            legend = alt.Legend(title = "Shoe")
-        ),
-        tooltip = [
-            "date:T",
-            "distance",
-            alt.Tooltip("pace_str", title = "pace"),
-            "elevation"
-        ]
-    )
+scatter = alt.Chart(res_year_df).mark_circle(size = 80, opacity = 0.75).encode(
+    x = alt.X("distance", title = "Distance (mi.)", scale = alt.Scale(domain = [distance_min, distance_max])),
+    y = alt.Y("pace", scale = alt.Scale(domain = [pace_min, pace_max]), axis = alt.Axis(title = "Pace (mm:ss)", labelExpr = "floor(datum.value) + ':' + format(round((datum.value % 1)*60), '02')")),
+    color = alt.Color("shoe", legend = alt.Legend(title = "Shoe")),
+    tooltip = ["date:T", "distance", alt.Tooltip("pace_str", title = "pace"), "elevation"]
 )
 
-mean_distance_line = alt.Chart(pd.DataFrame({"mean_distance": [mean_distance]})).mark_rule(
-    color = "white",
-    strokeDash = [5, 5]
-).encode(x = "mean_distance:Q")
+mean_distance_line = alt.Chart(pd.DataFrame({"mean_distance": [mean_distance]})).mark_rule(color = "white", strokeDash = [5, 5]).encode(x = "mean_distance:Q")
+mean_pace_line = alt.Chart(pd.DataFrame({"mean_pace": [mean_pace]})).mark_rule(color = "white", strokeDash = [5, 5]).encode(y = "mean_pace:Q")
 
-mean_pace_line = alt.Chart(pd.DataFrame({"mean_pace": [mean_pace]})).mark_rule(
-    color = "white",
-    strokeDash = [5, 5]
-).encode(y = "mean_pace:Q")
-
-scatter_chart = (
-    scatter
-    + mean_distance_line
-    + mean_pace_line
-).properties(
-    width = 700,
-    height = 400
-)
-
-st.subheader(f"Distance vs. Pace ({current_yr})")
+scatter_chart = (scatter + mean_distance_line + mean_pace_line).properties(width = 700, height = 400)
+st.subheader(f"Distance vs. Pace ({current_year})")
 st.altair_chart(scatter_chart, use_container_width = True)
-st.markdown("---")
+section_break()
 
+# -------- Lifetime Shoe Summary -------- #
 shoe_summary = (
-    df
-    .group_by("shoe")
-    .agg(
-        pl.count().alias("run_count"),
+    df.group_by("shoe")
+    .agg([
+        pl.len().alias("run_count"),
         pl.col("distance").sum().round(2).alias("total_distance"),
         (pl.col("time").sum() / 60).round(2).alias("total_time"),
         pl.col("distance").mean().round(2).alias("avg_distance"),
@@ -416,54 +232,35 @@ shoe_summary = (
         pl.col("distance").max().round(2).alias("max_distance"),
         pl.col("date").min().alias("first_run"),
         pl.col("date").max().alias("most_recent_date")
-    )
+    ])
     .sort("total_distance", descending = True)
     .to_pandas()
-    .reset_index(drop = True)
 )
-
-shoe_summary["avg_pace"] = shoe_summary["avg_pace_float"].apply(
-    lambda p: f"{int(p):d}:{int(round((p % 1) * 60)):02d}"
-)
-
+shoe_summary["avg_pace"] = shoe_summary["avg_pace_float"].apply(format_pace)
 shoe_summary["first_run"] = pd.to_datetime(shoe_summary["first_run"]).dt.strftime("%b %d, %Y")
 shoe_summary["most_recent_date"] = pd.to_datetime(shoe_summary["most_recent_date"]).dt.strftime("%b %d, %Y")
-
-shoe_summary = shoe_summary.drop(columns = ["avg_pace_float"])
-
-shoe_summary = shoe_summary[
-    ["shoe", "run_count", "total_distance", "avg_distance", "max_distance",
-     "total_time", "avg_pace", "first_run", "most_recent_date"]
-]
+shoe_summary = shoe_summary[["shoe", "run_count", "total_distance", "avg_distance", "max_distance", "total_time", "avg_pace", "first_run", "most_recent_date"]]
 
 st.subheader("Lifetime Shoe Summary")
 st.dataframe(shoe_summary, hide_index = True)
-st.markdown("---")
+section_break()
 
-st.subheader("All Runs")
-
+# -------- All Runs Table -------- #
 res = (
-    df
-    .with_columns([
+    df.with_columns([
         pl.col("elevation_per_mile").round(2),
-        (
-            pl.col("pace").floor().cast(pl.Int32).cast(pl.Utf8)
-            + ":" +
-            (((pl.col("pace") % 1) * 60).round(0).cast(pl.Int32).cast(pl.Utf8).str.zfill(2))
-        ).alias("pace"),
-        (
-            pl.col("time").floor().cast(pl.Int32).cast(pl.Utf8)
-            + ":" +
-            (((pl.col("time") % 1) * 60).round(0).cast(pl.Int32).cast(pl.Utf8).str.zfill(2))
-        ).alias("time"),
         pl.col("date").cast(pl.Utf8)
     ])
     .select(["date", "distance", "pace", "time", "calories", "elevation", "bpm", "elevation_per_mile", "shoe"])
     .sort(pl.col("date"), descending = True)
-)
+).to_pandas()
 
-st.dataframe(res)
-st.markdown("---")
+res["pace"] = res["pace"].apply(format_pace)
+res["time"] = res["time"].apply(format_pace)
+
+st.subheader("All Runs")
+st.dataframe(res, hide_index = True)
+section_break()
 
 st.write("The data in this report is sourced from a Google Sheet which I manually update. The data is a mixture of activities from Nike Run Club, Strava, and Garmin. I have only recently purchased and begun wearing my Garmin watch, and plan to use it as my source-of-truth data moving forward.")
-st.markdown("---")
+section_break()
