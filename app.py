@@ -150,6 +150,13 @@ shoe_df = (
     .sort("total_distance", descending = True)
     .to_pandas()
 )
+
+shoe_df["shoe"] = pd.Categorical(
+    shoe_df["shoe"],
+    categories = shoe_df["shoe"].tolist(),  # preserve current order
+    ordered = True
+)
+
 chart = plot_bar_chart(shoe_df, "total_distance", "shoe", "Total Distance (mi)", "Shoe",
                        tooltip_cols = ["run_count","total_distance","avg_distance","max_distance","time_hours"])
 st.subheader("Shoe-Level Summary (Shoes Used in Past Two Months)")
