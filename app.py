@@ -91,7 +91,7 @@ df_past_7 = df.filter(pl.col("date") >= (today - timedelta(days = 7)))
 df_current_month = df.filter((pl.col("date").dt.year() == current_year) & (pl.col("date").dt.month() == today.month))
 
 # -------- Most Recent Run -------- #
-row = df.sort(pl.col("date"), descending = True).row(0)
+row = df.row(-1)
 distance, pace_float, elevation, date_obj, shoe = [row[df.columns.index(c)] for c in ["distance", "pace", "elevation", "date", "shoe"]]
 
 st.title("Chad's Running Report")
